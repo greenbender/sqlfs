@@ -1,6 +1,3 @@
-#!/usr/bin/python3
-
-
 import os
 import stat
 import time
@@ -504,68 +501,3 @@ class Operations(pyfuse3.Operations):
 
     def close(self):
         self.db.close()
-
-
-if __name__ == '__main__':
-    import sys
-    import trio
-    import string
-    import random
-    import getpass
-    import argparse
-
-    parser = argparse.ArgumentParser(description='SQLite Filesystem')
-    parser.add_argument('database', nargs='?', default=':memory:', help='Database file')
-    parser.add_argument('mountpoint', help='Mountpoint')
-    parser.add_argument('-e', '--encrypt', action='store_true', help='Use sqlcipher to encrypt database')
-    parser.add_argument('-f', '--foreground', action='store_true', help='Don\'t daemonize')
-    args = parser.parse_args()
-
-    # encryption support
-    key = None
-    if args.encrypt:
-        libsqlcipher = 'libsqlcipher.so.0'
-        LD_PRELOAD = os.environ.pop('LD_PRELOAD', '')
-        if libsqlcipher not in LD_PRELOAD:
-            if LD_PRELOAD:
-                os.environ['LD_PRELOAD'] = f'{LD_PRELOAD}:{libsqlcipher}'
-            else:
-                os.environ['LD_PRELOAD'] = libsqlcipher
-            python = sys.executable
-            os.execl(python, python, *sys.argv)
-        if args.database == ':memory:':
-            key = ''.join(random.choice(string.ascii_letters) for _ in range(32))
-        else:
-            key = getpass.getpass('Database Password: ')
-
-    # init operations
-    operations = Operations(args.database, key)
-    del key
-
-    # init fuse
-    fuse_options = set(pyfuse3.default_options)
-    fuse_options.add('fsname=sqlfs')
-    fuse_options.discard('default_permissions')
-    pyfuse3.init(operations, args.mountpoint, fuse_options)
-
-    # daemonize (minimal implementation)
-    if not args.foreground:
-        os.umask(0)
-        os.chdir('/')
-        if os.fork() > 0:
-            sys.exit(0)
-        os.setsid()
-        if os.fork() > 0:
-            sys.exit(0)
-        devnull = os.open(os.devnull, os.O_RDWR)
-        os.dup2(devnull, sys.stdin.fileno())
-        os.dup2(devnull, sys.stdout.fileno())
-        os.dup2(devnull, sys.stderr.fileno())
-
-    try:
-        trio.run(pyfuse3.main)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        operations.close()
-        pyfuse3.close()

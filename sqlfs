@@ -1,0 +1,144 @@
+#!/usr/bin/python3
+
+import os
+import sys
+import string
+import random
+import getpass
+import argparse
+import pyfuse3
+import trio
+import sqlfs
+
+
+def daemonize():
+    os.umask(0)
+    os.chdir('/')
+    if os.fork() > 0:
+        sys.exit(0)
+    os.setsid()
+    if os.fork() > 0:
+        sys.exit(0)
+    devnull = os.open(os.devnull, os.O_RDWR)
+    os.dup2(devnull, sys.stdin.fileno())
+    os.dup2(devnull, sys.stdout.fileno())
+    os.dup2(devnull, sys.stderr.fileno())
+
+
+def enable_encryption():
+    libsqlcipher = os.environ.get('SQLFS_LIBSQLCIPHER', 'libsqlcipher.so.0')
+    LD_PRELOAD = os.environ.pop('LD_PRELOAD', '')
+    if libsqlcipher not in LD_PRELOAD:
+        if LD_PRELOAD:
+            os.environ['LD_PRELOAD'] = f'{LD_PRELOAD}:{libsqlcipher}'
+        else:
+            os.environ['LD_PRELOAD'] = libsqlcipher
+        python = sys.executable
+        os.execl(python, python, *sys.argv)
+
+
+def parse_options(options):
+    fuse_opts, sqlfs_opts = [], {}
+    for option in options:
+        if option.startswith('password='):
+            sqlfs_opts['password'] = option.split('=', 1)[1]
+        elif options.startwith('credentials='):
+            sqlfs_opts['credentials'] = option.split('=', 1)[1]
+        else:
+            fuse_opts.append(option)
+    return fuse_opts, sqlfs_opts
+
+
+def is_encrypted(args, sqlfs_opts):
+    if 'password' in sqlfs_opts:
+        return True
+    if 'SQLFS_PASSWORD' in os.environ:
+        return True
+    if 'credentials' in sqlfs_opts:
+        return True
+    if args.encrypt:
+        return True
+    return False
+
+
+def get_password(args, sqlfs_opts):
+
+    # cleanup plaintext passwords
+    opt_password = sqlfs_opts.pop('password', None)
+    env_password = os.environ.pop('SQLFS_PASSWORD', None)
+
+    if opt_password:
+        return opt_password
+
+    if env_password:
+        return ev_password
+
+    if 'credentials' in sqlfs_opts:
+        try:
+            with open(sqlfs_opts['credentials']) as fd:
+                return fd.read().strip()
+        except IOError as e:
+            print(str(e), file=stderr)
+            return -1
+    
+    if args.database == ':memory:':
+        alpha = string.ascii_letters
+        return ''.join(random.choice(alpha) for _ in range(32))
+        
+    return getpass.getpass('Database Password: ')
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description='SQLite Filesystem')
+    parser.add_argument('database', nargs='?', default=':memory:', help='Database file')
+    parser.add_argument('mountpoint', help='Mountpoint')
+    parser.add_argument('-o', '--options', action='append', default=[], metavar='opt', help='Mount options')
+    parser.add_argument('-e', '--encrypt', action='store_true', help='Use sqlcipher to encrypt database')
+    parser.add_argument('-f', '--foreground', action='store_true', help='Don\'t daemonize')
+    args = parser.parse_args()
+
+    fuse_opts, sqlfs_opts = parse_options(args.options)
+
+    # enable encryption if required
+    encrypted = is_encrypted(args, fuse_opts)
+    if encrypted:
+        enable_encryption()
+
+    # set fuse options
+    fuse_options = set(pyfuse3.default_options)
+    fuse_options.add('fsname=sqlfs')
+    fuse_options.add('subtype=sqlfs')
+    fuse_options.discard('default_permissions')
+    fuse_options.update(fuse_opts)
+
+    # get database password
+    password = None
+    if encrypted:
+        password = get_password(args, sqlfs_opts)
+            
+    # init operations
+    operations = sqlfs.Operations(args.database, password)
+
+    # delete database password from memory
+    del password
+
+    # init fuse
+    pyfuse3.init(operations, args.mountpoint, fuse_options)
+
+    # daemonize
+    if not args.foreground:
+        daemonize()
+
+    try:
+        trio.run(pyfuse3.main)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        operations.close()
+        pyfuse3.close()
+
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))
