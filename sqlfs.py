@@ -85,12 +85,6 @@ class Database:
             ]
         )
 
-    def commit(self):
-        self.conn.commit()
-
-    def rollback(self):
-        self.conn.rollback()
-
     def get_inode_from_id(self, inode):
         return self.conn.execute('''
             SELECT *,
@@ -134,7 +128,7 @@ class Database:
             WHERE {where}
             ORDER BY link.id''',
             params
-        ).fetchall()
+        )
 
     def get_blocks(self, inode, first_idx, last_idx):
         return self.conn.execute('''
@@ -142,7 +136,7 @@ class Database:
             FROM block
             WHERE inode=? AND idx>=? AND idx<=?''',
             (inode, first_idx, last_idx)
-        ).fetchall()
+        )
 
     def get_stats(self):
         return self.conn.execute('''
@@ -266,6 +260,12 @@ class Database:
 
     def vacuum(self):
         self.conn.execute('VACUUM')
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
 
     def close(self):
         self.cleanup_inodes()
@@ -518,6 +518,7 @@ if __name__ == '__main__':
     parser.add_argument('database', nargs='?', default=':memory:', help='Database file')
     parser.add_argument('mountpoint', help='Mountpoint')
     parser.add_argument('-e', '--encrypt', action='store_true', help='Use sqlcipher to encrypt database')
+    parser.add_argument('-f', '--foreground', action='store_true', help='Don\'t daemonize')
     args = parser.parse_args()
 
     # encryption support
@@ -546,6 +547,20 @@ if __name__ == '__main__':
     fuse_options.add('fsname=sqlfs')
     fuse_options.discard('default_permissions')
     pyfuse3.init(operations, args.mountpoint, fuse_options)
+
+    # daemonize (minimal implementation)
+    if not args.foreground:
+        os.umask(0)
+        os.chdir('/')
+        if os.fork() > 0:
+            sys.exit(0)
+        os.setsid()
+        if os.fork() > 0:
+            sys.exit(0)
+        devnull = os.open(os.devnull, os.O_RDWR)
+        os.dup2(devnull, sys.stdin.fileno())
+        os.dup2(devnull, sys.stdout.fileno())
+        os.dup2(devnull, sys.stderr.fileno())
 
     try:
         trio.run(pyfuse3.main)

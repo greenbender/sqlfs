@@ -5,6 +5,77 @@ was done on purpose since it gives a nice starting point on which to build more
 complete or bespoke solution.
 
 
+#### Examples ####
+
+In memory file system.
+
+```
+$ mkdir -p mnt
+$ ./sqlfs.py mnt/
+$ echo "Hello World!" > mnt/helloworld
+$ ls -l mnt/
+total 1
+-rw-r--r-- 1 user user 13 Sep  7 13:08 helloworld
+$ cat mnt/helloworld 
+Hello World!
+$ fusermount -u mnt/
+$ ls -l mnt/
+total 0
+```
+
+In memory encrypted filesystem. NOTE: A randomly generated key will be used for
+encryption.
+
+```
+$ mkdir -p mnt
+$ ./sqlfs.py --encrypt mnt/
+$ # ...
+$ fusermount -u mnt/
+```
+
+Sqlite file backed filesystem.
+
+```
+$ mkdir -p mnt
+$ ./sqlfs.py fs.db mnt/
+$ echo "Hello World!" > mnt/helloworld
+$ fusermount -u mnt/
+$ file fs.db
+fs.db: SQLite 3.x database, last written using SQLite version 3029000
+$ ls -l mnt/
+total 0
+$ ./sqlfs.py fs.db mnt/
+$ ls -l mnt/
+total 1
+-rw-r--r-- 1 user user 13 Sep  7 13:11 helloworld
+$ cat mnt/helloworld
+Hello World!
+$ fusermount -u mnt/
+```
+
+Sqlcipher (encrypted sqlite) file backed filesystem.
+
+```
+$ mkdir -p mnt
+$ ./sqlfs.py --encrypt fsenc.db mnt/
+Database Password: 
+$ echo "Hello World!" > mnt/helloworld
+$ fusermount -u mnt/
+$ file fsenc.db
+fsenc.db: data
+$ ls -l mnt/
+total 0
+$ ./sqlfs.py --encrypt fsenc.db mnt/
+Database Password: 
+$ ls -l mnt/
+total 1
+-rw-r--r-- 1 user user 13 Sep  7 13:14 helloworld
+$ cat mnt/helloworld
+Hello World!
+$ fusermount -u mnt/
+```
+
+
 #### Improvements ####
 
 Right now the best supported use-case is as an encrypted userspace filesystem
