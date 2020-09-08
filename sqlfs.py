@@ -384,9 +384,9 @@ class Operations(pyfuse3.Operations):
             raise pyfuse3.FUSEError(errno.EINVAL)
         inode_deref = self.db.get_inode_from_parent_and_name(parent_inode_new, name_new)
         if inode_deref:
-            if flags & RENAME_NOREPLACE:
+            if flags & pyfuse3.RENAME_NOREPLACE:
                 raise pyfuse3.FUSEError(errno.EEXIST)
-            elif flags & RENAME_EXCHANGE:
+            elif flags & pyfuse3.RENAME_EXCHANGE:
                 self.db.update_link(inode_deref['link_id'], inode=inode_moved['id'])
                 self.db.update_link(inode_moved['link_id'], inode=inode_deref['id'])
                 self.db.commit()
