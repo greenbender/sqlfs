@@ -15,7 +15,7 @@ def _timestamp_ns():
 class Database:
 
     def __init__(self, db_path, key=None):
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
         self.init_tables(key)
 
