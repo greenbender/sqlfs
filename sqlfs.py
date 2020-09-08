@@ -4,7 +4,6 @@ import time
 import errno
 import sqlite3
 import hashlib
-import threading
 import pyfuse3
 
 
@@ -93,7 +92,7 @@ class Database:
                 (SELECT COUNT(*) FROM block WHERE inode=inode.id) AS nblock
             FROM inode
             WHERE id=?''',
-            (inode,)            
+            (inode,)
         ).fetchone()
 
     def get_inode_from_parent_and_name(self, parent_inode, name):
@@ -306,7 +305,7 @@ class Operations(pyfuse3.Operations):
         if not row:
             raise pyfuse3.FUSEError(errno.EINVAL)
         return self._to_entry(row)
-    
+
     async def access(self, inode, mode, ctx):
         return True
 
@@ -363,7 +362,7 @@ class Operations(pyfuse3.Operations):
             buf[buf_idx:buf_idx + len(data)] = data
         f_aln0 = f_idx0 & self.blkmask
         return bytes(buf[f_aln0:f_aln0 + size])
-        
+
     async def readdir(self, fh, start_id, token):
         for row in self.db.get_inodes_from_parent(fh, start_id):
             entry = self._to_entry(row)
@@ -476,7 +475,7 @@ class Operations(pyfuse3.Operations):
         ours.f_ffree = f_ffree
         ours.f_favail = f_favail
         # just set it (theres no real limit)
-        ours.f_namemax = 255 
+        ours.f_namemax = 255
         return ours
 
     async def symlink(self, parent_inode, name, target, ctx):
