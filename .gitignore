@@ -1,2 +1,4 @@
-__pycache__
 .*.sw?
+__pycache__
+.eggs/
+sqlfs.egg-info/
