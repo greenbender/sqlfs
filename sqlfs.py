@@ -138,9 +138,9 @@ class Database:
     def get_stats(self):
         return self.conn.execute('''
             SELECT
-                COUNT(id) FROM block AS f_blocks,
-                COUNT(id) FROM inode AS f_files'''
-        )
+                (SELECT COUNT(*) FROM block) AS f_blocks,
+                (SELECT COUNT(*) FROM inode) AS f_files'''
+        ).fetchone()
 
     def create_link(self, inode, parent_inode, name, is_dir):
         values = [(inode, parent_inode, name)]
@@ -434,18 +434,46 @@ class Operations(pyfuse3.Operations):
         self.db.commit()
         return self._get_entry(inode)
 
+    @staticmethod
+    def _memfree():
+        with open('/proc/meminfo') as fd:
+            for line in fd:
+                parts = line.split()
+                if parts[0] == 'MemFree:':
+                    return int(parts[1]) * 1024
+
     async def statfs(self, ctx):
         stats = self.db.get_stats()
-        real = os.statvfs(self.db_path)
+
+        # base it off free memory
+        if self.db_path == ':memory:':
+            memfree = self._memfree()
+            f_bfree = memfree >> self.blkshft
+            f_bsize = self.blksize
+            f_bavail = f_bfree
+            f_ffree = f_bfree
+            f_favail = f_ffree
+
+        # base it of free disk
+        else:
+            real = os.statvfs(self.db_path)
+            f_bfree = real.f_bfree
+            f_bsize = real.f_bsize
+            f_bavail = real.f_bavail
+            f_ffree = real.f_ffree
+            f_favail = real.f_favail
+
         ours = pyfuse3.StatvfsData()
         ours.f_bsize = self.blksize
         ours.f_frsize = self.blksize
         ours.f_blocks = stats['f_blocks']
         ours.f_files = stats['f_files']
-        ours.f_bfree = (real.f_bfree * real.f_bsize) >> self.blkshft
-        ours.f_bavail = (real.f_bavail * real.f_bsize) >> self.blkshft
-        ours.f_ffree = real.f_ffree
-        ours.f_favail = real.f_favail
+        ours.f_bfree = (f_bfree * f_bsize) >> self.blkshft
+        ours.f_bavail = (f_bavail * f_bsize) >> self.blkshft
+        ours.f_ffree = f_ffree
+        ours.f_favail = f_favail
+        # just set it (theres no real limit)
+        ours.f_namemax = 255 
         return ours
 
     async def symlink(self, parent_inode, name, target, ctx):

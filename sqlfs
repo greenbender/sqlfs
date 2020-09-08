@@ -40,12 +40,16 @@ def enable_encryption():
 def parse_options(options):
     fuse_opts, sqlfs_opts = [], {}
     for option in options:
-        if option.startswith('password='):
-            sqlfs_opts['password'] = option.split('=', 1)[1]
-        elif options.startwith('credentials='):
-            sqlfs_opts['credentials'] = option.split('=', 1)[1]
-        else:
-            fuse_opts.append(option)
+        opts = option.split(',')
+        for opt in opts: 
+            if opt.startswith('password='):
+                sqlfs_opts['password'] = opt.split('=', 1)[1]
+            elif opt.startswith('credentials='):
+                sqlfs_opts['credentials'] = opt.split('=', 1)[1]
+            elif opt == 'encrypt':
+                sqlfs_opts['encrypt'] = True
+            else:
+                fuse_opts.append(opt)
     return fuse_opts, sqlfs_opts
 
 
@@ -56,23 +60,21 @@ def is_encrypted(args, sqlfs_opts):
         return True
     if 'credentials' in sqlfs_opts:
         return True
+    if 'encrypt' in sqlfs_opts:
+        return True
     if args.encrypt:
         return True
     return False
 
 
 def get_password(args, sqlfs_opts):
-
     # cleanup plaintext passwords
     opt_password = sqlfs_opts.pop('password', None)
     env_password = os.environ.pop('SQLFS_PASSWORD', None)
-
     if opt_password:
         return opt_password
-
     if env_password:
         return ev_password
-
     if 'credentials' in sqlfs_opts:
         try:
             with open(sqlfs_opts['credentials']) as fd:
@@ -80,11 +82,9 @@ def get_password(args, sqlfs_opts):
         except IOError as e:
             print(str(e), file=stderr)
             return -1
-    
     if args.database == ':memory:':
         alpha = string.ascii_letters
         return ''.join(random.choice(alpha) for _ in range(32))
-        
     return getpass.getpass('Database Password: ')
 
 
