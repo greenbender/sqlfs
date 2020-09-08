@@ -9,8 +9,8 @@ more complete or bespoke solution.
 
 ##### System #####
 
-* libfuse3 - Whatever version `pyfuse3` requires.
-* libsqlcipher - Latest version (only if you want encryption support)
+* libfuse3-dev - Whatever version `pyfuse3` requires.
+* libsqlcipher0 - Latest version (only if you want encryption support)
 
 ##### Python #####
 
