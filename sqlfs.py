@@ -8,8 +8,11 @@ import threading
 import pyfuse3
 
 
-def _timestamp_ns():
-    return int(time.time() * 1e9)
+if hasattr(time, 'time_ns'):
+    _timestamp_ns = time.time_ns
+else:
+    def _timestamp_ns():
+        return int(time.time() * 1e9)
 
 
 class Database:
