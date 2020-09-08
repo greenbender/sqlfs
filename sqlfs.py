@@ -28,7 +28,8 @@ class Database:
             self.conn.execute(f'PRAGMA key=\'{key}\'')
 
         # create tables
-        self.conn.executescript('''
+        self.conn.executescript(
+            '''
             PRAGMA foreign_keys=ON;
             CREATE TABLE IF NOT EXISTS inode (
                 id INTEGER PRIMARY KEY,
@@ -58,14 +59,17 @@ class Database:
                 data BLOB NOT NULL,
                 PRIMARY KEY (inode, idx)
             ) WITHOUT ROWID;
-        ''')
+            '''
+        )
 
         # create root inode
         now_ns = _timestamp_ns()
-        self.conn.execute('''
+        self.conn.execute(
+            '''
             INSERT OR IGNORE INTO inode (
                 id, uid, gid, mode, mtime_ns, atime_ns, ctime_ns
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)''', (
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
                 1,
                 os.getuid(),
                 os.getgid(),
@@ -75,28 +79,33 @@ class Database:
                 now_ns
             )
         )
-        self.conn.executemany('''
+        self.conn.executemany(
+            '''
             INSERT OR IGNORE INTO link (
                 inode, parent_inode, name
-            ) VALUES (?, ?, ?)''', [
+            ) VALUES (?, ?, ?)
+            ''', [
                 (1, 1, b'.'),
                 (1, 1, b'..'),
             ]
         )
 
     def get_inode_from_id(self, inode):
-        return self.conn.execute('''
+        return self.conn.execute(
+            '''
             SELECT *,
                 (SELECT COUNT(*) FROM link WHERE inode=inode.id) AS nlink,
                 (SELECT COUNT(*) FROM link WHERE parent_inode=inode.id) AS nchild,
                 (SELECT COUNT(*) FROM block WHERE inode=inode.id) AS nblock
             FROM inode
-            WHERE id=?''',
+            WHERE id=?
+            ''',
             (inode,)
         ).fetchone()
 
     def get_inode_from_parent_and_name(self, parent_inode, name):
-        return self.conn.execute('''
+        return self.conn.execute(
+            '''
             SELECT inode.*,
                 (SELECT COUNT(*) FROM link WHERE inode=inode.id) AS nlink,
                 (SELECT COUNT(*) FROM link WHERE parent_inode=inode.id) AS nchild,
@@ -104,7 +113,8 @@ class Database:
                 link.id AS link_id
             FROM inode
             INNER JOIN link ON inode.id=inode
-            WHERE parent_inode=? AND name=?''',
+            WHERE parent_inode=? AND name=?
+            ''',
             (parent_inode, name)
         ).fetchone()
 
@@ -115,7 +125,8 @@ class Database:
             where.append('link.id>?')
             params.append(start_id)
         where = ' AND '.join(where)
-        return self.conn.execute(f'''
+        return self.conn.execute(
+            f'''
             SELECT inode.*,
                 (SELECT COUNT(*) FROM link WHERE inode=inode.id) AS nlink,
                 (SELECT COUNT(*) FROM link WHERE parent_inode=inode.id) AS nchild,
@@ -125,23 +136,28 @@ class Database:
             FROM inode
             INNER JOIN link ON inode.id=inode
             WHERE {where}
-            ORDER BY link.id''',
+            ORDER BY link.id
+            ''',
             params
         )
 
     def get_blocks(self, inode, first_idx, last_idx):
-        return self.conn.execute('''
+        return self.conn.execute(
+            '''
             SELECT *
             FROM block
-            WHERE inode=? AND idx>=? AND idx<=?''',
+            WHERE inode=? AND idx>=? AND idx<=?
+            ''',
             (inode, first_idx, last_idx)
         )
 
     def get_stats(self):
-        return self.conn.execute('''
+        return self.conn.execute(
+            '''
             SELECT
                 (SELECT COUNT(*) FROM block) AS f_blocks,
-                (SELECT COUNT(*) FROM inode) AS f_files'''
+                (SELECT COUNT(*) FROM inode) AS f_files
+            '''
         ).fetchone()
 
     def create_link(self, inode, parent_inode, name, is_dir):
@@ -151,10 +167,12 @@ class Database:
                 (inode, inode, b'.'),
                 (parent_inode, inode, b'..'),
             ])
-        self.conn.executemany('''
+        self.conn.executemany(
+            '''
             INSERT INTO link (
                 inode, parent_inode, name
-            ) VALUES (?, ?, ?)''',
+            ) VALUES (?, ?, ?)
+            ''',
             values
         )
 
@@ -169,10 +187,12 @@ class Database:
             params.append(param)
         cols = ','.join(cols)
         vals = ','.join(vals)
-        inode = self.conn.execute(f'''
+        inode = self.conn.execute(
+            f'''
             INSERT INTO inode (
                 {cols}
-            ) VALUES ({vals})''',
+            ) VALUES ({vals})
+            ''',
             params
         ).lastrowid
         self.create_link(inode, parent_inode, name, stat.S_ISDIR(mode))
@@ -190,10 +210,12 @@ class Database:
             stmts, params = self._update_stmts(**kwargs)
             params.append(inode)
             stmt = ','.join(stmts)
-            self.conn.execute(f'''
+            self.conn.execute(
+                f'''
                 UPDATE inode
                 SET {stmt}
-                WHERE id=?''',
+                WHERE id=?
+                ''',
                 params
             )
 
@@ -202,44 +224,55 @@ class Database:
             stmts, params = self._update_stmts(**kwargs)
             params.append(link)
             stmt = ','.join(stmts)
-            self.conn.execute(f'''
+            self.conn.execute(
+                f'''
                 UPDATE link
                 SET {stmt}
-                WHERE id=?''',
+                WHERE id=?
+                ''',
                 params
             )
 
     def update_blocks(self, blocks):
-        self.conn.executemany('''
+        self.conn.executemany(
+            '''
             INSERT OR REPLACE INTO block (
                 inode, idx, data
-            ) VALUES (?, ?, ?)''',
+            ) VALUES (?, ?, ?)
+            ''',
             blocks
         )
 
     def delete_link(self, link):
-        self.conn.execute('''
+        self.conn.execute(
+            '''
             DELETE FROM link
-            WHERE id=?''',
+            WHERE id=?
+            ''',
             (link,)
         )
 
     def delete_inode(self, inode):
-        self.conn.execute('''
+        self.conn.execute(
+            '''
             DELETE FROM inode
-            WHERE id=?''',
+            WHERE id=?
+            ''',
             (inode,)
-    )
+        )
 
     def truncate_blocks(self, inode, idx):
-        self.conn.execute('''
+        self.conn.execute(
+            '''
             DELETE FROM block
-            WHERE inode=? AND idx>?''',
+            WHERE inode=? AND idx>?
+            ''',
             (inode, idx)
         )
 
     def cleanup_inodes(self):
-        self.conn.execute('''
+        self.conn.execute(
+            '''
             DELETE FROM inode
             WHERE inode.id IN (
                 SELECT a.id
@@ -254,7 +287,8 @@ class Database:
                 ) b
                 ON a.id=b.id
                 WHERE a.inode IS NULL AND b.inode IS NULL
-            )'''
+            )
+            '''
         )
 
     def vacuum(self):
