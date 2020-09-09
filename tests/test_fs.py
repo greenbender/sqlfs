@@ -34,6 +34,7 @@ class _TestFileSystem:
             if cls.db_path.is_file():
                 cls.db_path.unlink()
         cls.mnt.rmdir()
+        print(list(os.listdir(cls.tmp)))
         cls.tmp.rmdir()
 
     def _mounted(self):
