@@ -2,12 +2,13 @@ import subprocess
 import unittest
 import tempfile
 import pathlib
-import shutil
+import stat
 import sys
 import os
 
 
 class _TestFileSystem:
+    db_name = ':memory:'
 
     @classmethod
     def mount(cls):
@@ -22,12 +23,18 @@ class _TestFileSystem:
         cls.tmp = pathlib.Path(tempfile.mkdtemp())
         cls.mnt = cls.tmp / 'fs'
         cls.mnt.mkdir()
+        if cls.db_name != ':memory:':
+            cls.db_path = cls.tmp / cls.db_name
         cls.mount()
 
     @classmethod
     def tearDownClass(cls):
         cls.umount()
-        shutil.rmtree(os.fspath(cls.tmp))
+        if cls.db_name != ':memory:':
+            if cls.db_path.is_file():
+                cls.db_path.unlink()
+        cls.mnt.rmdir()
+        cls.tmp.rmdir()
 
     def _mounted(self):
         with open('/etc/mtab') as fd:
@@ -84,6 +91,30 @@ class _TestFileSystem:
         self.assertEqual(symlnkabs.lstat().st_size, len(str(symtgt.resolve())))
         self.assertTrue(os.path.samestat(symlnkabs.stat(), symtgt.stat()))
 
+    def test_mknod(self):
+        fifo = self.mnt / 'fifo'
+        os.mkfifo(fifo)
+        self.assertTrue(stat.S_ISFIFO(fifo.stat().st_mode))
+        indata = b'abcdef'
+        if os.fork() == 0:
+            with open(fifo, 'wb') as infd:
+                infd.write(indata)
+            os._exit(0)
+        else:
+            with open(fifo, 'rb') as outfd:
+                outdata = outfd.read(6)
+        self.assertEqual(indata, outdata)
+
+    def test_readdir(self):
+        reader = self.mnt / 'reader'
+        reader.mkdir()
+        filenames = {'one', 'two', 'three', 'four'}
+        for filename in filenames:
+            reader.joinpath(filename).touch()
+        for entry in reader.iterdir():
+            filenames.remove(entry.name)
+        self.assertFalse(filenames)
+
 
 class TestMemoryFileSystem(_TestFileSystem, unittest.TestCase):
 
@@ -93,10 +124,10 @@ class TestMemoryFileSystem(_TestFileSystem, unittest.TestCase):
 
 
 class TestPersistFileSystem(_TestFileSystem, unittest.TestCase):
+    db_name = 'fs.db'
 
     @classmethod
     def mount(cls):
-        cls.db_path = cls.tmp / 'fs.db'
         subprocess.run([sys.executable, './sqlfs', cls.db_path, cls.mnt], check=True)
 
     def test_unencrypted(self):
@@ -105,6 +136,7 @@ class TestPersistFileSystem(_TestFileSystem, unittest.TestCase):
 
 
 class TestEncryptedFileSystem(_TestFileSystem, unittest.TestCase):
+    db_name = 'fs.db'
 
     @classmethod
     def mount(cls):
