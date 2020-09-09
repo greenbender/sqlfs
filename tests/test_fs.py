@@ -64,7 +64,7 @@ class _TestFileSystem:
         self.assertEqual(linkfirst.lstat().st_nlink, 1)
         linksecond = self.mnt / 'linksecond'
         if hasattr(linksecond, 'link_to'):
-            linksecond.link_to(linkfirst)
+            linkfirst.link_to(linksecond)
         else:
             os.link(linkfirst, linksecond)
         self.assertEqual(linkfirst.lstat().st_nlink, 2)
