@@ -1,4 +1,4 @@
-![build](workflows/build/badge.svg)
+![build](../../workflows/build/badge.svg)
 
 A FUSE file system backed by an sqlite database.
 
