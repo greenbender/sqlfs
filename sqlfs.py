@@ -252,6 +252,20 @@ class Database:
             (link,)
         )
 
+    def delete_link_dir(self, inode):
+        self.conn.execute(
+            '''
+            DELETE FROM link
+            WHERE inode=?1 OR (
+                parent_inode=?1 AND (
+                    name=X'2E' OR
+                    name=X'2E2E'
+                )
+            )
+            ''',
+            (inode,)
+        )
+
     def delete_inode(self, inode):
         self.conn.execute(
             '''
@@ -439,11 +453,10 @@ class Operations(pyfuse3.Operations):
         row = self.db.get_inode_from_parent_and_name(parent_inode, name)
         if not stat.S_ISDIR(row['mode']):
             raise pyfuse3.FUSEError(errno.ENOTDIR)
-        if row['nchild']:
+        if row['nchild'] > 2:
             raise pyfuse3.FUSEError(errno.ENOTEMPTY)
-        self.db.delete_link(row['link_id'])
-        # need to delete row - read doco its confusing for now just
-        # cleanup orphaned inodes on umount
+        self.db.delete_link_dir(row['id'])
+        # need to delete inode - for now just cleanup orphaned inodes on umount
         self.db.commit()
 
     async def setattr(self, inode, attr, fields, fh, ctx):
@@ -520,11 +533,8 @@ class Operations(pyfuse3.Operations):
         row = self.db.get_inode_from_parent_and_name(parent_inode, name)
         if stat.S_ISDIR(row['mode']):
             raise pyfuse3.FUSEError(errno.EISDIR)
-        if row['nchild']:
-            raise pyfuse3.FUSEError(errno.ENOTEMPTY)
         self.db.delete_link(row['link_id'])
-        # need to delete row - read doco its confusing for now just
-        # cleanup orphaned inodes on umount
+        # need to delete inode - for now just cleanup orphaned inodes on umount
         self.db.commit()
 
     def _blocks(self, buf, inode, b_idx0):
