@@ -2,51 +2,57 @@ import subprocess
 import unittest
 import tempfile
 import pathlib
+import time
 import stat
 import sys
 import os
 
 
 class _TestFileSystem:
-    db_name = ':memory:'
+    memory = True
+    sqlfs_args = []
 
     @classmethod
-    def mount(cls):
-        raise NotImplementedError()
-
-    @classmethod
-    def umount(cls):
-        subprocess.run(['fusermount', '-u', cls.mnt], check=True)
+    def _mounted(cls):
+        with open('/etc/mtab') as fd:
+            for line in fd:
+                fsname, mnt, fstype, _ = line.split(None, 3)
+                if fstype == 'fuse.sqlfs' and mnt == os.fspath(cls.mnt):
+                    return True
+        return False
 
     @classmethod
     def setUpClass(cls):
         cls.tmp = pathlib.Path(tempfile.mkdtemp())
         cls.mnt = cls.tmp / 'fs'
         cls.mnt.mkdir()
-        if cls.db_name != ':memory:':
-            cls.db_path = cls.tmp / cls.db_name
-        cls.mount()
+        cmd = [sys.executable, './sqlfs', '-f']
+        cmd.extend(cls.sqlfs_args)
+        if not cls.memory:
+            cls.db_path = cls.tmp / 'fs.db'
+            cmd.append(str(cls.db_path))
+        cmd.append(str(cls.mnt))
+        cls.sqlfs = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        wait = 2.0
+        while not cls._mounted() and wait >= 0:
+            time.sleep(0.1)
+            wait -= 0.1
 
     @classmethod
     def tearDownClass(cls):
-        cls.umount()
-        if cls.db_name != ':memory:':
-            if cls.db_path.is_file():
-                cls.db_path.unlink()
+        subprocess.run(['fusermount', '-u', cls.mnt])
+        cls.sqlfs.wait(timeout=10)
+        if not cls.memory and cls.db_path.is_file():
+            cls.db_path.unlink()
         cls.mnt.rmdir()
-        print(list(os.listdir(cls.tmp)))
         cls.tmp.rmdir()
 
-    def _mounted(self):
-        with open('/etc/mtab') as fd:
-            for line in fd:
-                fsname, mnt, fstype, _ = line.split(None, 3)
-                if fstype == 'fuse.sqlfs' and mnt == os.fspath(self.mnt):
-                    return True
-        return False
-
     def test_mounted(self):
-        self.assertTrue(self._mounted)
         self.assertTrue(self.mnt.joinpath('.').samefile(self.mnt))
         self.assertTrue(self.mnt.joinpath('..').samefile(self.tmp))
 
@@ -118,18 +124,11 @@ class _TestFileSystem:
 
 
 class TestMemoryFileSystem(_TestFileSystem, unittest.TestCase):
-
-    @classmethod
-    def mount(cls):
-        subprocess.run([sys.executable, './sqlfs', cls.mnt], check=True)
+    pass
 
 
 class TestPersistFileSystem(_TestFileSystem, unittest.TestCase):
-    db_name = 'fs.db'
-
-    @classmethod
-    def mount(cls):
-        subprocess.run([sys.executable, './sqlfs', cls.db_path, cls.mnt], check=True)
+    memory = False
 
     def test_unencrypted(self):
         with open(self.db_path, 'rb') as fd:
@@ -137,12 +136,8 @@ class TestPersistFileSystem(_TestFileSystem, unittest.TestCase):
 
 
 class TestEncryptedFileSystem(_TestFileSystem, unittest.TestCase):
-    db_name = 'fs.db'
-
-    @classmethod
-    def mount(cls):
-        cls.db_path = cls.tmp / 'fs.db'
-        subprocess.run([sys.executable, './sqlfs', '-o', 'password=insecure', cls.db_path, cls.mnt], check=True)
+    memory = False
+    sqlfs_args = ['-o', 'password=insecure']
 
     def test_encrypted(self):
         with open(self.db_path, 'rb') as fd:
