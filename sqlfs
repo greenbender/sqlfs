@@ -37,22 +37,6 @@ def enable_encryption():
         os.execl(python, python, *sys.argv)
 
 
-def parse_options(options):
-    fuse_opts, sqlfs_opts = [], {}
-    for option in options:
-        opts = option.split(',')
-        for opt in opts: 
-            if opt.startswith('password='):
-                sqlfs_opts['password'] = opt.split('=', 1)[1]
-            elif opt.startswith('credentials='):
-                sqlfs_opts['credentials'] = opt.split('=', 1)[1]
-            elif opt == 'encrypt':
-                sqlfs_opts['encrypt'] = True
-            else:
-                fuse_opts.append(opt)
-    return fuse_opts, sqlfs_opts
-
-
 def is_encrypted(args, sqlfs_opts):
     if 'password' in sqlfs_opts:
         return True
@@ -74,13 +58,13 @@ def get_password(args, sqlfs_opts):
     if opt_password:
         return opt_password
     if env_password:
-        return ev_password
+        return env_password
     if 'credentials' in sqlfs_opts:
         try:
             with open(sqlfs_opts['credentials']) as fd:
                 return fd.read().strip()
         except IOError as e:
-            print(str(e), file=stderr)
+            print(str(e), file=sys.stderr)
             return -1
     if args.database == ':memory:':
         alpha = string.ascii_letters
@@ -88,19 +72,60 @@ def get_password(args, sqlfs_opts):
     return getpass.getpass('Database Password: ')
 
 
-def main(argv):
-    parser = argparse.ArgumentParser(description='SQLite Filesystem')
-    parser.add_argument('database', nargs='?', default=':memory:', help='Database file')
-    parser.add_argument('mountpoint', help='Mountpoint')
-    parser.add_argument('-o', '--options', action='append', default=[], metavar='opt', help='Mount options')
-    parser.add_argument('-e', '--encrypt', action='store_true', help='Use sqlcipher to encrypt database')
-    parser.add_argument('-f', '--foreground', action='store_true', help='Don\'t daemonize')
-    args = parser.parse_args()
+def parse_options(options):
+    fuse_opts, sqlfs_opts = [], {}
+    for option in options:
+        opts = option.split(',')
+        for opt in opts:
+            if opt.startswith('password='):
+                sqlfs_opts['password'] = opt.split('=', 1)[1]
+            elif opt.startswith('credentials='):
+                sqlfs_opts['credentials'] = opt.split('=', 1)[1]
+            elif opt == 'encrypt':
+                sqlfs_opts['encrypt'] = True
+            else:
+                fuse_opts.append(opt)
+    return fuse_opts, sqlfs_opts
 
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description='SQLite FUSE file system'
+    )
+    parser.add_argument(
+        'database',
+        nargs='?', default=':memory:',
+        help='Database file'
+    )
+    parser.add_argument(
+        'mountpoint',
+        help='Mountpoint'
+    )
+    parser.add_argument(
+        '-o', '--options',
+        action='append', default=[], metavar='opt',
+        help='Mount options'
+    )
+    parser.add_argument(
+        '-e', '--encrypt',
+        action='store_true',
+        help='Use sqlcipher to encrypt database'
+    )
+    parser.add_argument(
+        '-f', '--foreground',
+        action='store_true',
+        help='Run in the foreground'
+    )
+    args = parser.parse_args(argv[1:])
     fuse_opts, sqlfs_opts = parse_options(args.options)
+    return args, fuse_opts, sqlfs_opts
+
+
+def main(argv):
+    args, fuse_opts, sqlfs_opts = parse_args(argv)
 
     # enable encryption if required
-    encrypted = is_encrypted(args, fuse_opts)
+    encrypted = is_encrypted(args, sqlfs_opts)
     if encrypted:
         enable_encryption()
 
@@ -115,7 +140,7 @@ def main(argv):
     password = None
     if encrypted:
         password = get_password(args, sqlfs_opts)
-            
+
     # init operations
     operations = sqlfs.Operations(args.database, password)
 
