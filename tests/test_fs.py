@@ -3,7 +3,7 @@ import unittest
 import tempfile
 import pathlib
 import shutil
-import sqlfs
+import sys
 import os
 
 
@@ -11,13 +11,13 @@ class _TestFileSystem:
 
     @classmethod
     def mount(cls):
-        raise NotImplemented()
+        raise NotImplementedError()
 
     @classmethod
     def umount(cls):
-        subprocess.run(['fusermount', '-u', os.fspath(cls.mnt)], check=True)
+        subprocess.run(['fusermount', '-u', cls.mnt], check=True)
 
-    @classmethod 
+    @classmethod
     def setUpClass(cls):
         cls.tmp = pathlib.Path(tempfile.mkdtemp())
         cls.mnt = cls.tmp / 'fs'
@@ -89,7 +89,7 @@ class TestMemoryFileSystem(_TestFileSystem, unittest.TestCase):
 
     @classmethod
     def mount(cls):
-        subprocess.run(['./sqlfs', os.fspath(cls.mnt)], check=True)
+        subprocess.run([sys.executable, './sqlfs', cls.mnt], check=True)
 
 
 class TestPersistFileSystem(_TestFileSystem, unittest.TestCase):
@@ -97,18 +97,19 @@ class TestPersistFileSystem(_TestFileSystem, unittest.TestCase):
     @classmethod
     def mount(cls):
         cls.db_path = cls.tmp / 'fs.db'
-        subprocess.run(['./sqlfs', os.fspath(cls.db_path), os.fspath(cls.mnt)], check=True)
+        subprocess.run([sys.executable, './sqlfs', cls.db_path, cls.mnt], check=True)
 
     def test_unencrypted(self):
         with open(self.db_path, 'rb') as fd:
             self.assertEqual(b'SQLite', fd.read(6))
+
 
 class TestEncryptedFileSystem(_TestFileSystem, unittest.TestCase):
 
     @classmethod
     def mount(cls):
         cls.db_path = cls.tmp / 'fs.db'
-        subprocess.run(['./sqlfs', '-o', 'password=insecure', os.fspath(cls.db_path), os.fspath(cls.mnt)], check=True)
+        subprocess.run([sys.executable, './sqlfs', '-o', 'password=insecure', cls.db_path, cls.mnt], check=True)
 
     def test_encrypted(self):
         with open(self.db_path, 'rb') as fd:
