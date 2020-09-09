@@ -160,7 +160,7 @@ class Database:
             '''
         ).fetchone()
 
-    def create_link(self, inode, parent_inode, name, is_dir):
+    def create_link(self, inode, parent_inode, name, is_dir=False):
         values = [(inode, parent_inode, name)]
         if is_dir:
             values.extend([
@@ -175,6 +175,7 @@ class Database:
             ''',
             values
         )
+        return inode
 
     def create_inode(self, parent_inode, name, uid, gid, mode, **kwargs):
         now_ns = _timestamp_ns()
@@ -195,8 +196,7 @@ class Database:
             ''',
             params
         ).lastrowid
-        self.create_link(inode, parent_inode, name, stat.S_ISDIR(mode))
-        return inode
+        return self.create_link(inode, parent_inode, name, stat.S_ISDIR(mode))
 
     def _update_stmts(self, **kwargs):
         stmts, params = [], []
@@ -527,7 +527,7 @@ class Operations(pyfuse3.Operations):
 
     async def symlink(self, parent_inode, name, target, ctx):
         mode = stat.S_IFLNK | 0o777
-        return self._create(parent_inode, name, ctx.uid, ctx.gid, mode, size=len(name), target=target)
+        return self._create(parent_inode, name, ctx.uid, ctx.gid, mode, size=len(target), target=target)
 
     async def unlink(self, parent_inode, name, ctx):
         row = self.db.get_inode_from_parent_and_name(parent_inode, name)
