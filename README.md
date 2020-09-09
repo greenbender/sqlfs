@@ -1,3 +1,5 @@
+![build](workflows/build/badge.svg)
+
 A FUSE file system backed by an sqlite database.
 
 At present this is about as simple an implementation as I could make, and this
