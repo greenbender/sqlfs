@@ -1,5 +1,6 @@
 import subprocess
 import unittest
+import functools
 import tempfile
 import pathlib
 import time
@@ -8,16 +9,30 @@ import sys
 import os
 
 
+def failUnmounted(func):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if not self.mounted():
+            self.fail('File system not mounted')
+        else:
+            return func(self, *args, **kwargs)
+    return wrapper
+
+
 class _TestFileSystem:
     memory = True
     sqlfs_args = []
+    _mounted = False
 
     @classmethod
-    def _mounted(cls):
+    def mounted(cls):
+        if cls._mounted:
+            return True
         with open('/etc/mtab') as fd:
             for line in fd:
                 fsname, mnt, fstype, _ = line.split(None, 3)
                 if fstype == 'fuse.sqlfs' and mnt == os.fspath(cls.mnt):
+                    cls._mounted = True
                     return True
         return False
 
@@ -39,7 +54,7 @@ class _TestFileSystem:
             stderr=subprocess.DEVNULL,
         )
         wait = 2.0
-        while not cls._mounted() and wait >= 0:
+        while not cls.mounted() and wait >= 0:
             time.sleep(0.1)
             wait -= 0.1
 
@@ -53,15 +68,21 @@ class _TestFileSystem:
         cls.tmp.rmdir()
 
     def test_mounted(self):
+        self.assertTrue(self.mounted())
+
+    @failUnmounted
+    def test_created(self):
         self.assertTrue(self.mnt.joinpath('.').samefile(self.mnt))
         self.assertTrue(self.mnt.joinpath('..').samefile(self.tmp))
 
+    @failUnmounted
     def test_touch(self):
         touched = self.mnt / 'touched'
         touched.touch()
         self.assertTrue(touched.is_file())
         self.assertEqual(touched.lstat().st_size, 0)
 
+    @failUnmounted
     def test_mkdir(self):
         made = self.mnt / 'made'
         made.mkdir()
@@ -72,6 +93,7 @@ class _TestFileSystem:
         self.assertTrue(sub.is_dir())
         self.assertEqual(made.lstat().st_nlink, 3)
 
+    @failUnmounted
     def test_link(self):
         linkfirst = self.mnt / 'linkfirst'
         linkfirst.touch()
@@ -84,6 +106,7 @@ class _TestFileSystem:
         self.assertEqual(linkfirst.lstat().st_nlink, 2)
         self.assertTrue(linkfirst.samefile(linksecond))
 
+    @failUnmounted
     def test_symlink(self):
         symtgt = self.mnt / 'symtgt'
         symtgt.touch()
@@ -98,6 +121,7 @@ class _TestFileSystem:
         self.assertEqual(symlnkabs.lstat().st_size, len(str(symtgt.resolve())))
         self.assertTrue(os.path.samestat(symlnkabs.stat(), symtgt.stat()))
 
+    @failUnmounted
     def test_mknod(self):
         fifo = self.mnt / 'fifo'
         os.mkfifo(fifo)
@@ -112,6 +136,7 @@ class _TestFileSystem:
                 outdata = outfd.read(6)
         self.assertEqual(indata, outdata)
 
+    @failUnmounted
     def test_readdir(self):
         reader = self.mnt / 'reader'
         reader.mkdir()
@@ -130,6 +155,7 @@ class TestMemoryFileSystem(_TestFileSystem, unittest.TestCase):
 class TestPersistFileSystem(_TestFileSystem, unittest.TestCase):
     memory = False
 
+    @failUnmounted
     def test_unencrypted(self):
         with open(self.db_path, 'rb') as fd:
             self.assertEqual(b'SQLite', fd.read(6))
@@ -139,6 +165,7 @@ class TestEncryptedFileSystem(_TestFileSystem, unittest.TestCase):
     memory = False
     sqlfs_args = ['-o', 'password=insecure']
 
+    @failUnmounted
     def test_encrypted(self):
         with open(self.db_path, 'rb') as fd:
             self.assertNotEqual(b'SQLite', fd.read(6))
