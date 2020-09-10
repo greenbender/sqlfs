@@ -279,7 +279,7 @@ class Database:
         self.conn.execute(
             '''
             DELETE FROM block
-            WHERE inode=? AND idx>?
+            WHERE inode=? AND idx>=?
             ''',
             (inode, idx)
         )
@@ -387,6 +387,10 @@ class Operations(pyfuse3.Operations):
         return self._create(parent_inode, name, ctx.uid, ctx.gid, mode, rdev=rdev)
 
     async def open(self, inode, flags, ctx):
+        if flags & os.O_TRUNC:
+            self.db.truncate_blocks(inode, 0)
+            self.db.update_inode(inode, size=0)
+            self.db.commit()
         return pyfuse3.FileInfo(fh=inode)
 
     async def opendir(self, inode, ctx):
@@ -464,7 +468,7 @@ class Operations(pyfuse3.Operations):
         if fields.update_size:
             update_kwargs['size'] = attr.st_size
             block_idx = attr.st_size >> self.blkshft
-            self.db.truncate_blocks(inode, block_idx)
+            self.db.truncate_blocks(inode, block_idx + 1)
         if fields.update_mode:
             update_kwargs['mode'] = attr.st_mode
         if fields.update_uid:

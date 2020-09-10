@@ -141,15 +141,124 @@ class _TestFileSystem:
         self.assertEqual(indata, outdata)
 
     @skipUnmounted
+    def test_statvfs(self):
+        stat0 = os.statvfs(self.mnt)
+        self.mnt.joinpath('statvfs').write_bytes(b'a' * stat0.f_bsize * 2)
+        stat1 = os.statvfs(self.mnt)
+        self.assertEqual(stat0.f_blocks + 2, stat1.f_blocks)
+        self.assertEqual(stat0.f_files + 1, stat1.f_files)
+
+    @skipUnmounted
     def test_readdir(self):
-        reader = self.mnt / 'reader'
-        reader.mkdir()
+        readdir = self.mnt / 'readdir'
+        readdir.mkdir()
         filenames = {'one', 'two', 'three', 'four'}
         for filename in filenames:
-            reader.joinpath(filename).touch()
-        for entry in reader.iterdir():
+            readdir.joinpath(filename).touch()
+        for entry in readdir.iterdir():
             filenames.remove(entry.name)
         self.assertFalse(filenames)
+
+    @skipUnmounted
+    def test_unlink(self):
+        unlinked = self.mnt / 'unlinked'
+        unlinked.touch()
+        self.assertTrue(unlinked.exists())
+        unlinked.unlink()
+        self.assertFalse(unlinked.exists())
+
+    @skipUnmounted
+    def test_access_after_unlink(self):
+        accessor = self.mnt / 'accessor'
+        with open(accessor, 'w') as fd:
+            fd.write('abcdef')
+            self.assertTrue(fd.tell(), 6)
+            self.assertTrue(accessor.exists())
+            accessor.unlink()
+            self.assertFalse(accessor.exists())
+            fd.write('ghijkl')
+            self.assertEqual(fd.tell(), 12)
+
+    @skipUnmounted
+    def test_open(self):
+        with self.assertRaises(FileNotFoundError):
+            open(self.mnt / 'openr', 'r')
+        with self.assertRaises(FileNotFoundError):
+            open(self.mnt / 'openr+', 'r+')
+        openw = self.mnt / 'openw'
+        with open(openw, 'w') as fd:
+            self.assertTrue(openw.exists())
+            fd.write('abcdef')
+        self.assertEqual(openw.stat().st_size, 6)
+        with open(openw, 'w+') as fd:
+            self.assertTrue(openw.exists())
+        self.assertEqual(openw.stat().st_size, 0)
+        with open(openw, 'a') as fd:
+            fd.write('abcdef')
+        self.assertEqual(openw.stat().st_size, 6)
+        with open(openw, 'a+') as fd:
+            fd.write('ghijkl')
+        self.assertEqual(openw.stat().st_size, 12)
+        openx = self.mnt / 'openx'
+        with open(openx, 'x') as fd:
+            self.assertTrue(openx.exists())
+        with self.assertRaises(FileExistsError):
+            open(openx, 'x')
+        with self.assertRaises(FileExistsError):
+            open(openx, 'x+')
+
+    @skipUnmounted
+    def test_write(self):
+        bs = os.statvfs(self.mnt).f_bsize
+        writer = self.mnt / 'writer'
+        with open(writer, 'wb') as fd:
+            fd.write(b'a' * bs)
+        self.assertEqual(writer.stat().st_size, bs)
+        self.assertEqual(writer.read_bytes(), b'a' * bs)
+        with open(writer, 'r+b') as fd:
+            fd.seek(-1, os.SEEK_END)
+            fd.write(b'bbb')
+        self.assertEqual(writer.stat().st_size, bs + 2)
+        self.assertEqual(writer.read_bytes(), b'a' * (bs - 1) + b'bbb')
+        with open(writer, 'r+b') as fd:
+            fd.seek(1, os.SEEK_SET)
+            fd.write(b'c' * bs)
+        self.assertEqual(writer.stat().st_size, bs + 2)
+        self.assertEqual(writer.read_bytes(), b'a' + b'c' * bs + b'b')
+
+    @skipUnmounted
+    def test_read(self):
+        bs = os.statvfs(self.mnt).f_bsize
+        reader = self.mnt / 'reader'
+        reader.write_bytes(b'a' * (bs - 10) + b'b' * 10 + b'c' * 10 + b'd' * (bs - 20) + b'e' * 10 + b'f' * 10)
+        with open(reader, 'rb') as fd:
+            self.assertEqual(fd.read(0), b'')
+            self.assertEqual(fd.read(10), b'a' * 10)
+            fd.seek(bs - 11, os.SEEK_SET)
+            self.assertEqual(fd.read(22), b'a' + b'b' * 10 + b'c' * 10 + b'd')
+            fd.seek(bs - 1, os.SEEK_SET)
+            self.assertEqual(fd.read(1), b'b')
+            self.assertEqual(fd.read(1), b'c')
+            fd.seek(bs - 1, os.SEEK_SET)
+            self.assertEqual(fd.read(bs + 2), b'b' + b'c' * 10 + b'd' * (bs - 20) + b'e' * 10 + b'f')
+            self.assertEqual(fd.read(30), b'f' * 9)
+            self.assertEqual(fd.read(5), b'')
+
+    @skipUnmounted
+    def test_sparse(self):
+        stat0 = os.statvfs(self.mnt)
+        sparse = self.mnt / 'sparse'
+        with self.assertRaises(FileNotFoundError):
+            os.truncate(sparse, 50)
+        sparse.touch()
+        mb100 = 1024 * 1024 * 1024
+        os.truncate(sparse, mb100)
+        stat1 = os.statvfs(self.mnt)
+        self.assertEqual(sparse.stat().st_size, mb100)
+        self.assertEqual(stat0.f_blocks, stat1.f_blocks)
+        self.assertEqual(stat0.f_files + 1, stat1.f_files)
+        with open(sparse, 'rb') as fd:
+            self.assertEqual(fd.read(10), b'\x00' * 10)
 
 
 class TestMemoryFileSystem(_TestFileSystem, unittest.TestCase):
